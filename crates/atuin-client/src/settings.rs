@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, OnceLock};
 use std::time::Duration;
 
+use atuin_common::filter::OrFilter;
 use atuin_common::logs::LogLevel;
 use atuin_common::path::PathExt;
 // `AsDuration`/`AsDisableableDuration` are deprecated.
@@ -26,6 +27,8 @@ use time::OffsetDateTime;
 use tokio::sync::OnceCell;
 use tracing::instrument;
 use url::Url;
+
+use crate::history::{AuthorPattern, all_user_author_filter};
 
 static EXAMPLE_CONFIG: &str = include_str!("../config.toml");
 
@@ -156,6 +159,57 @@ impl FilterMode {
             Self::Directory => "DIRECTORY",
             Self::Workspace => "WORKSPACE",
             Self::SessionPreload => "SESSION+",
+        }
+    }
+}
+
+/// Whose commands interactive search shows.
+#[derive(Copy, Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AuthorScope {
+    /// Commands a human ran.
+    #[default]
+    User,
+    /// Commands anyone ran, human or agent.
+    All,
+    /// Commands an agent ran.
+    Agent,
+}
+
+impl AuthorScope {
+    #[must_use]
+    pub fn next(self) -> Self {
+        match self {
+            Self::User => Self::All,
+            Self::All => Self::Agent,
+            Self::Agent => Self::User,
+        }
+    }
+
+    #[must_use]
+    pub fn includes_agents(self) -> bool {
+        self != Self::User
+    }
+
+    /// The label shown after the filter mode in interactive search. The default has none.
+    #[must_use]
+    pub fn label(self) -> Option<&'static str> {
+        match self {
+            Self::User => None,
+            Self::All => Some("+AGENTS"),
+            Self::Agent => Some("AGENTS"),
+        }
+    }
+
+    #[must_use]
+    pub fn author_filter(self) -> OrFilter<&'static [AuthorPattern]> {
+        static AGENT: LazyLock<OrFilter<Vec<AuthorPattern>>> = LazyLock::new(|| {
+            OrFilter::from_list(vec![AuthorPattern::AllAgent]).expect("the vector is not empty")
+        });
+        match self {
+            Self::User => all_user_author_filter(),
+            Self::All => OrFilter::default(),
+            Self::Agent => AGENT.as_slice_filter(),
         }
     }
 }
@@ -557,6 +611,9 @@ pub struct Search {
     ///
     /// One of: `"all"`, `"auto"`, or an array of strings.
     pub shells: Shells,
+
+    /// Whose commands interactive search starts out showing.
+    pub author_scope: AuthorScope,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -782,6 +839,7 @@ impl Default for Search {
             frequency_score_multiplier: 1.0,
             frecency_score_multiplier: 1.0,
             shells: Default::default(),
+            author_scope: AuthorScope::User,
         }
     }
 }
@@ -1575,6 +1633,7 @@ impl Settings {
             .set_default("search.frequency_score_multiplier", 1.0)?
             .set_default("search.frecency_score_multiplier", 1.0)?
             .set_default("search.shells", "auto")?
+            .set_default("search.author_scope", "user")?
             .set_default("meta.db_path", meta_path.to_str())?
             .set_default("ai.db_path", ai_sessions_path.to_str())?
             .set_default("ai.session_continue_minutes", 60)?

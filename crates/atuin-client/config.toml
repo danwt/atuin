@@ -339,6 +339,15 @@ enter_accept = true
 ##   commands that have no recorded shell
 # shells = "auto"
 
+## Whose commands interactive search starts out showing; ctrl-t cycles them:
+##
+## - "user": commands you ran yourself
+##
+## - "all": your commands and those AI coding agents ran
+##
+## - "agent": only commands AI coding agents ran
+# author_scope = "user"
+
 [tmux]
 ## Enable using atuin with tmux popup (requires tmux >= 3.2)
 ## When enabled and running inside tmux, Atuin will use a popup window for interactive search.

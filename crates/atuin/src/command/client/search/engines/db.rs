@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use atuin_client::database::{DbSearchMode, OptFilters, QueryToken, QueryTokenizer, Sqlite};
-use atuin_client::history::{History, all_user_author_filter};
+use atuin_client::history::History;
 use eyre::Result;
 use norm::Metric;
 use norm::fzf::{FzfParser, FzfV2};
@@ -18,7 +18,8 @@ impl SearchEngine for Search {
         let results = db
             .search(self.0, state.filter_mode, &state.context, state.input.as_str(), OptFilters {
                 limit: Some(200),
-                authors: all_user_author_filter(),
+                shortest_first: state.author_scope.includes_agents(),
+                authors: state.author_scope.author_filter(),
                 shells: shells.as_filter(),
                 ..Default::default()
             })

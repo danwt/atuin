@@ -33,6 +33,10 @@ pub struct Context {
     pub git_root: Option<PathBuf>,
 }
 
+/// How many of the most recent matches [`OptFilters::shortest_first`] ranks. Ranking every match
+/// costs hundreds of milliseconds for a one-letter query on a large history.
+pub const SHORTEST_FIRST_CANDIDATES: usize = 2000;
+
 #[derive(Clone, Copy, Default)]
 pub struct OptFilters<'a> {
     /// Include any of these exit codes. An empty slice means no restriction.
@@ -51,6 +55,10 @@ pub struct OptFilters<'a> {
     pub offset: Option<i64>,
     pub reverse: bool,
     pub include_duplicates: bool,
+    /// Order the most recent [`SHORTEST_FIRST_CANDIDATES`] matches shortest command first, then
+    /// newest first. A long command contains most short queries somewhere, so on history with
+    /// many of them the closest matches are the short ones. Ignores `reverse`.
+    pub shortest_first: bool,
     /// Author filter.
     pub authors: OrFilter<&'a [AuthorPattern]>,
     /// Shell filter. The empty string matches commands that have no recorded shell.
@@ -851,14 +859,22 @@ impl Sqlite {
         // the entire table on every keystroke. The `(timestamp, id)` row-value
         // comparison both breaks timestamp ties (one row per command) and stays
         // a sargable range scan on the (command, timestamp) index.
-        let query = if filter_options.include_duplicates {
-            format!("SELECT {HISTORY_COLUMNS} FROM ({inner}) f ORDER BY f.timestamp {order}{tail}")
+        let matches = if filter_options.include_duplicates {
+            format!("SELECT {HISTORY_COLUMNS} FROM ({inner}) f")
         } else {
             format!(
                 "SELECT {HISTORY_COLUMNS} FROM ({inner}) f WHERE NOT EXISTS ( SELECT 1 FROM \
                  ({inner}) f2 WHERE f2.command = f.command AND (f2.timestamp, f2.id) > \
-                 (f.timestamp, f.id) ) ORDER BY f.timestamp {order}{tail}"
+                 (f.timestamp, f.id) )"
             )
+        };
+        let query = if filter_options.shortest_first {
+            format!(
+                "SELECT {HISTORY_COLUMNS} FROM ({matches} ORDER BY f.timestamp DESC LIMIT \
+                 {SHORTEST_FIRST_CANDIDATES}) ORDER BY length(command) ASC, timestamp DESC{tail}"
+            )
+        } else {
+            format!("{matches} ORDER BY f.timestamp {order}{tail}")
         };
 
         let res = db::query_as::<_, History>(sqlx::AssertSqlSafe(query))
@@ -2328,6 +2344,50 @@ mod test {
             .unwrap();
 
         assert_eq!(results.len(), expected_count, "{results:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[rstest]
+    #[case::most_recent_first(false, &["for f in *; do kubectl get pods; done", "kubectl get pods -A", "kubectl get pods"])]
+    #[case::shortest_first(true, &["kubectl get pods", "kubectl get pods -A", "for f in *; do kubectl get pods; done"])]
+    async fn search_orders_by_length_when_asked(
+        #[case] shortest_first: bool,
+        #[case] expected: &[&str],
+    ) {
+        let db = Sqlite::in_memory(test_local_timeout()).await.unwrap();
+        let now = OffsetDateTime::now_utc();
+        for (age, command) in [
+            (3, "kubectl get pods"),
+            (2, "kubectl get pods -A"),
+            (1, "for f in *; do kubectl get pods; done"),
+        ] {
+            let history: History = History::capture()
+                .timestamp(now - Duration::from_secs(age))
+                .command(command)
+                .cwd("/tmp")
+                .build()
+                .into();
+            db.save(&history).await.unwrap();
+        }
+
+        let context = Context {
+            cmd_origin: CmdOrigin::try_from("mac:ellie".to_owned()).unwrap(),
+            session: "session".into(),
+            cwd: "/tmp".into(),
+            host_id: "host".into(),
+            git_root: None,
+        };
+        let filters = OptFilters {
+            shortest_first,
+            ..Default::default()
+        };
+        let results = db
+            .search(DbSearchMode::FullText, FilterMode::Global, &context, "kubectl get", filters)
+            .await
+            .unwrap();
+
+        let commands: Vec<&str> = results.iter().map(|h| h.command.as_str()).collect();
+        assert_eq!(commands, expected);
     }
 
     /// The generated `is_agent` column freezes the agent names and kinds; it must agree with
