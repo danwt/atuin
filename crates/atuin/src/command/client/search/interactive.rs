@@ -1094,7 +1094,7 @@ impl State {
         };
 
         let title = self.build_title(theme);
-        let title_width = u16::conv(title.width()).max(header_chunk.width / 5);
+        let title_width = u16::conv(title.width() + 1).max(header_chunk.width / 5);
         let header_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints::<&[Constraint]>(
