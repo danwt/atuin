@@ -7,7 +7,7 @@ use atuin_common::db::sqlite::{Sqlite as CommonSqlite, SqliteBuilder};
 use atuin_common::filter::{self, OrFilter};
 use atuin_common::time::OffsetDateTimeExt;
 use atuin_common::{db, utils};
-use atuin_domain::record::{CmdOrigin, UNKNOWN_USER};
+use atuin_domain::record::CmdOrigin;
 use easy_cast::{CastFloat, Conv};
 use itertools::Itertools;
 use sql_builder::bind::Bind;
@@ -22,7 +22,7 @@ use uuid::Uuid;
 use super::history::History;
 use super::ordering;
 use super::settings::{FilterMode, SearchMode, Settings};
-use crate::history::{AuthorKind, AuthorPattern, HistoryId, HistoryStats, KNOWN_AGENTS};
+use crate::history::{AuthorKind, AuthorPattern, HistoryId, HistoryStats};
 
 #[derive(Clone)]
 pub struct Context {
@@ -120,31 +120,11 @@ fn apply_author_filter(sql: &mut SqlBuilder, authors: OrFilter<&[AuthorPattern]>
         write!(f, "CASE WHEN author IS NULL OR trim(author) = '' THEN {user_expr} ELSE author END")
     });
 
-    let defaulted_expr = format!(
-        "CASE WHEN instr(hostname, ':') = 0 THEN hostname WHEN substr(hostname, instr(hostname, \
-         ':') + 1) = {unknown} THEN substr(hostname, 1, instr(hostname, ':') - 1) ELSE \
-         substr(hostname, instr(hostname, ':') + 1) END",
-        unknown = quote(UNKNOWN_USER),
-    );
-
-    // Mirrors [`History::is_agent`]: a recorded kind wins, and without one a known agent name means
-    // an agent, unless the author is only the name it defaulted to — a NULL/blank author *is* only
-    // that name, so it is never an agent. A kind we don't recognise (written by a newer version)
-    // falls through to the name heuristic, exactly like [`AuthorKind::from_repr`] mapping it to
-    // `None` — and so does a NULL kind, because `NULL IN (...)` is not true.
-    let is_agent = || {
-        format!(
-            "CASE WHEN author_kind IN ({kinds}) THEN author_kind = {agent} WHEN author IS NULL OR \
-             trim(author) = '' THEN 0 ELSE author IN ({names}) AND author <> {defaulted_expr} END",
-            kinds = AuthorKind::VARIANTS.iter().map(|kind| kind.as_u8()).join(", "),
-            agent = AuthorKind::Agent.as_u8(),
-            names = KNOWN_AGENTS.iter().map(quote).join(", "),
-        )
-    };
-
+    // `is_agent` is the generated column mirroring [`History::is_agent`]. Written as a literal
+    // comparison so the planner can use the partial indexes over it.
     let mut conditions = authors.iter().map(|author| match author {
-        AuthorPattern::AllUser => format!("NOT ({})", is_agent()),
-        AuthorPattern::AllAgent => is_agent(),
+        AuthorPattern::AllUser => "is_agent = 0".to_owned(),
+        AuthorPattern::AllAgent => "is_agent = 1".to_owned(),
         AuthorPattern::Name(name) => {
             format!("{author_expr} = {}", quote(name))
         }
@@ -1333,6 +1313,7 @@ mod test {
     use time::format_description::well_known::Rfc3339;
 
     use super::*;
+    use crate::history::KNOWN_AGENTS;
     use crate::settings::test_local_timeout;
 
     /// `ATUIN_SESSION` comes from the environment: a stray value whose version nibble reads as a
@@ -2347,6 +2328,44 @@ mod test {
             .unwrap();
 
         assert_eq!(results.len(), expected_count, "{results:?}");
+    }
+
+    /// The generated `is_agent` column freezes the agent names and kinds; it must agree with
+    /// [`History::is_agent`] for every one of them, or the author filter and the Rust side split.
+    #[tokio::test(flavor = "multi_thread")]
+    #[rstest]
+    async fn is_agent_column_agrees_with_history_is_agent() {
+        let db = Sqlite::in_memory(test_local_timeout()).await.unwrap();
+
+        let authors = KNOWN_AGENTS.iter().copied().chain(["ellie", ""]);
+        let kinds = AuthorKind::VARIANTS.iter().copied().map(Some).chain([None]);
+        let origins = ["mac:ellie", "pi:unknown-user", "raspberry:pi"];
+        let mut expected = Vec::new();
+        for ((author, kind), origin) in authors.cartesian_product(kinds).cartesian_product(origins)
+        {
+            let history: History = History::import()
+                .timestamp(OffsetDateTime::now_utc())
+                .command(format!("echo {author} {kind:?} {origin}"))
+                .cwd("/tmp")
+                .cmd_origin(CmdOrigin::try_from(origin.to_owned()).unwrap())
+                .author(author)
+                .author_kind(kind)
+                .build()
+                .into();
+            db.save(&history).await.unwrap();
+            expected.push((history.id, history.is_agent()));
+        }
+
+        for (id, is_agent) in expected {
+            let (column,): (bool,) = db::query_as("select is_agent from history where id = ?1")
+                .bind(id)
+                .fetch_one(db.sqlite.pool())
+                .await
+                .unwrap();
+            let loaded = db.load(id).await.unwrap().unwrap();
+            assert_eq!(column, is_agent, "{loaded:?}");
+            assert_eq!(loaded.is_agent(), is_agent, "{loaded:?}");
+        }
     }
 
     /// An author_kind value this version doesn't recognise (written by a newer one) must fall
