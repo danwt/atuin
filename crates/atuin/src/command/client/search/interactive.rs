@@ -211,7 +211,8 @@ impl State {
             {
                 tracing::warn!("daemon-fuzzy search failed: {error:#}");
                 self.search_mode_state.daemon_failed = true;
-                self.engine = engines::engine(self.search_mode(), settings);
+                self.engine =
+                    engines::engine(self.search_mode(), self.search.author_scope, settings);
                 self.engine.query(&self.search, db).await?
             }
             Err(error) => return Err(error),
@@ -757,7 +758,14 @@ impl State {
             Action::CycleSearchMode => {
                 self.switched_search_mode = true;
                 self.search_mode_state.advance_to_next_mode(settings);
-                self.engine = engines::engine(self.search_mode(), settings);
+                self.engine =
+                    engines::engine(self.search_mode(), self.search.author_scope, settings);
+                InputAction::Continue
+            }
+            Action::CycleAuthorScope => {
+                self.search.author_scope = self.search.author_scope.next();
+                self.engine =
+                    engines::engine(self.search_mode(), self.search.author_scope, settings);
                 InputAction::Continue
             }
             Action::SwitchContext => {
@@ -1211,7 +1219,10 @@ impl State {
                 .map(|col| col.width + 1)
                 .sum::<u16>()
                 + u16::conv(" > ".len());
-            let min_prefix_width = u16::conv("[ SRCH: FULLTXT ] ".len());
+            let (pref, mode) = self.input_mode();
+            // 5: surrounding "[ " " ] "
+            let min_prefix_width =
+                u16::conv("[ SRCH: FULLTXT ] ".len().max(pref.len() + mode.len() + 5));
             self.draw_preview(
                 f,
                 style,
@@ -1393,16 +1404,27 @@ impl State {
         }
     }
 
-    fn build_input(&self, style: StyleState, prefix_width: u16) -> Paragraph<'_> {
-        let (pref, mode) = if self.prefix {
-            ("", "PREFIX")
-        } else if self.switched_search_mode {
+    fn input_mode(&self) -> (&'static str, String) {
+        if self.prefix {
+            return ("", "PREFIX".to_owned());
+        }
+        let (pref, mode) = if self.switched_search_mode {
             (" SRCH:", self.search_mode_state.raw_mode().as_str())
         } else if self.search.custom_context.is_some() {
             (" CTX:", self.search.filter_mode.as_str())
         } else {
             ("", self.search.filter_mode.as_str())
         };
+        let mode = self
+            .search
+            .author_scope
+            .label()
+            .map_or_else(|| mode.to_owned(), |label| format!("{mode} {label}"));
+        (pref, mode)
+    }
+
+    fn build_input(&self, style: StyleState, prefix_width: u16) -> Paragraph<'_> {
+        let (pref, mode) = self.input_mode();
         // 3: surrounding "[" "] "
         let mode_width = usize::from(prefix_width) - pref.len() - 3;
         // sanity check to ensure we don't exceed the layout limits
@@ -1953,8 +1975,9 @@ pub async fn history(
             context: initial_context.clone(),
             custom_context: None,
             shells: settings.search.shells.clone(),
+            author_scope: settings.search.author_scope,
         },
-        engine: engines::engine(search_mode_state.mode(), settings),
+        engine: engines::engine(search_mode_state.mode(), settings.search.author_scope, settings),
         search_mode_state,
         results_len: 0,
         accept: false,
@@ -2013,6 +2036,7 @@ pub async fn history(
         let initial_filter_mode = app.search.filter_mode;
         let initial_search_mode = app.search_mode();
         let initial_custom_context = app.search.custom_context;
+        let initial_author_scope = app.search.author_scope;
 
         let event_ready = tokio::task::spawn_blocking(|| event::poll(Duration::from_millis(250)));
 
@@ -2145,6 +2169,7 @@ pub async fn history(
             || initial_filter_mode != app.search.filter_mode
             || initial_search_mode != app.search_mode()
             || initial_custom_context != app.search.custom_context
+            || initial_author_scope != app.search.author_scope
         {
             results = app.query_results(&mut db, settings).await?;
         }
@@ -2312,8 +2337,8 @@ mod tests {
     use atuin_client::database::Context;
     use atuin_client::history::History;
     use atuin_client::settings::{
-        FilterMode, KeymapMode, Preview, PreviewStrategy, RequestedSearchMode, SearchMode,
-        Settings, Shells,
+        AuthorScope, FilterMode, KeymapMode, Preview, PreviewStrategy, RequestedSearchMode,
+        SearchMode, Settings, Shells,
     };
     use rstest::{fixture, rstest};
     use time::OffsetDateTime;
@@ -2371,8 +2396,9 @@ mod tests {
                 },
                 custom_context: None,
                 shells: Shells::all(),
+                author_scope: AuthorScope::User,
             },
-            engine: engines::engine(SearchMode::Fuzzy, &Settings::utc()),
+            engine: engines::engine(SearchMode::Fuzzy, AuthorScope::User, &Settings::utc()),
             now: Box::new(OffsetDateTime::now_utc),
         };
         state.results_state.select(selected);
@@ -3142,7 +3168,7 @@ mod tests {
         let mut state = state(KeymapMode::Emacs, 0, 0, FilterMode::Global, "query");
         state.search_mode_state = SearchModeState::new(&settings);
         assert_eq!(state.search_mode(), SearchMode::DaemonFuzzy);
-        state.engine = engines::engine(SearchMode::DaemonFuzzy, &settings);
+        state.engine = engines::engine(SearchMode::DaemonFuzzy, AuthorScope::User, &settings);
         let mut db = Sqlite::in_memory(std::time::Duration::from_secs(2)).await.unwrap();
         let history: History = History::capture()
             .timestamp(OffsetDateTime::now_utc())

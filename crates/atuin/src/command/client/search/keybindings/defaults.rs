@@ -211,6 +211,7 @@ pub fn default_emacs_keymap(settings: &Settings) -> Keymap {
     // --- Search mode ---
     km.bind(key("ctrl-r"), Action::CycleFilterMode);
     km.bind(key("ctrl-s"), Action::CycleSearchMode);
+    km.bind(key("ctrl-t"), Action::CycleAuthorScope);
 
     // --- Scroll (no exit) ---
     km.bind(key("ctrl-n"), Action::SelectNext);

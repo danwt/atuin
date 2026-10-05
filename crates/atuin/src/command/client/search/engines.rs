@@ -1,6 +1,6 @@
 use atuin_client::database::{Context, DbSearchMode, OptFilters, Sqlite};
-use atuin_client::history::{History, HistoryId, all_user_author_filter};
-use atuin_client::settings::{FilterMode, SearchMode, Settings, Shells};
+use atuin_client::history::{History, HistoryId};
+use atuin_client::settings::{AuthorScope, FilterMode, SearchMode, Settings, Shells};
 use enum_dispatch::enum_dispatch;
 use eyre::Result;
 
@@ -10,9 +10,19 @@ use super::cursor::Cursor;
 pub mod daemon;
 pub mod db;
 
+/// Agent commands are long, and fuzzy matching finds nearly any query scattered through a long
+/// command, so a scope that includes them matches substrings instead. The daemon does not index
+/// agent commands.
 #[allow(unused)] // settings is only used if daemon feature is enabled
-pub fn engine(search_mode: SearchMode, settings: &Settings) -> AnySearchEngine {
+pub fn engine(
+    search_mode: SearchMode,
+    author_scope: AuthorScope,
+    settings: &Settings,
+) -> AnySearchEngine {
     match search_mode {
+        _ if author_scope.includes_agents() && search_mode != SearchMode::Prefix => {
+            db::Search(DbSearchMode::FullText).into()
+        }
         #[cfg(feature = "daemon")]
         SearchMode::DaemonFuzzy => Box::new(daemon::Search::new(settings)).into(),
         #[cfg(not(feature = "daemon"))]
@@ -32,6 +42,7 @@ pub struct SearchState {
     pub context: Context,
     pub custom_context: Option<HistoryId>,
     pub shells: Shells,
+    pub author_scope: AuthorScope,
 }
 
 impl SearchState {
@@ -67,7 +78,7 @@ pub trait SearchEngine: Send + Sync + 'static {
             Ok(db
                 .search(DbSearchMode::FullText, state.filter_mode, &state.context, "", OptFilters {
                     limit: Some(200),
-                    authors: all_user_author_filter(),
+                    authors: state.author_scope.author_filter(),
                     shells: shells.as_filter(),
                     ..Default::default()
                 })

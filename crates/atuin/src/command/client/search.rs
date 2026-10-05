@@ -274,6 +274,7 @@ impl Cmd {
                 offset: self.offset,
                 reverse: self.reverse,
                 include_duplicates: self.include_duplicates,
+                shortest_first: false,
                 authors: authors.as_slice_filter(),
                 shells: shells.as_slice_filter(),
             };
@@ -359,7 +360,9 @@ async fn run_non_interactive(
 pub async fn prepare_index(settings: &Settings) -> Result<()> {
     use engines::AnySearchEngine;
     #[cfg(feature = "daemon")]
-    if let AnySearchEngine::Daemon(mut search) = engines::engine(settings.search_mode(), settings) {
+    if let AnySearchEngine::Daemon(mut search) =
+        engines::engine(settings.search_mode(), settings.search.author_scope, settings)
+    {
         search.prepare_index().await?;
     }
     Ok(())

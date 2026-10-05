@@ -46,11 +46,7 @@ Agents that load extensions rather than shelling out to a hook command -- openco
 
 ## Filtering by Author
 
-By default, Atuin's interactive search shows only your own commands. Agent-run commands are hidden so they don't clutter your history.
-
-Today this default is built into the search UI rather than configurable via `config.toml`. Interactive search uses the equivalent of:
-
-- `$all-user` — any entry that's **not** agent-run
+By default, Atuin's interactive search shows only your own commands, the equivalent of `$all-user` below. Press ctrl-t inside the TUI to include agent-run commands or show only those, and set [`search.author_scope`](../configuration/config.md#author_scope) to choose where it starts.
 
 For explicit author filtering, use the CLI `atuin search --author ...` flag. Special values:
 

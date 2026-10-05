@@ -41,6 +41,13 @@ modes by pressing **ctrl-s** inside the TUI.
 
 To change the default, set [`search_mode`](../configuration/config.md#search_mode).
 
+## Author scope
+
+Interactive search shows only commands you ran yourself. Press **ctrl-t** to
+cycle to all commands, including those recorded by AI coding agents, and then
+to agent commands only. To change where it starts, set
+[`search.author_scope`](../configuration/config.md#author_scope).
+
 ## Context switch
 
 Atuin uses the current context (host, session, directory) to filter the history when you use a filter mode other than *global*.

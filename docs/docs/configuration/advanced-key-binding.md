@@ -206,6 +206,7 @@ Note: `select-next` and `select-previous` respect the `invert` setting. When `in
 | `redraw` | Redraw the screen |
 | `cycle-filter-mode` | Cycle through the enabled [filter modes](config.md#filter_mode) |
 | `cycle-search-mode` | Cycle through [search modes](config.md#search_mode) (prefix, fulltext, (daemon-)fuzzy) |
+| `cycle-author-scope` | Cycle through [author scopes](config.md#author_scope) (yours, everyone's, agents') |
 | `toggle-tab` | Toggle between the search tab and inspector tab |
 | `switch-context` | Switch to the [context](../guide/advanced-usage.md#context-switch) of the currently selected command |
 | `clear-context` | Return to the initial [context](../guide/advanced-usage.md#context-switch) |

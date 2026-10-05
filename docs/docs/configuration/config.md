@@ -672,9 +672,29 @@ frecency_score_multiplier = 2.0
 
 ### Filtering by author
 
-Interactive search shows only commands you ran yourself, hiding those recorded
-by AI coding agents through [agent hooks](../guide/agent-hooks.md). This isn't
-currently configurable in `config.toml`.
+#### `author_scope`
+
+Default: `"user"`
+
+Whose commands interactive search shows when it opens. Press ctrl-t inside the
+TUI to cycle through the scopes.
+
+| Value     | Shows                                                                                                  |
+|-----------|--------------------------------------------------------------------------------------------------------|
+| `"user"`  | Commands you ran yourself                                                                              |
+| `"all"`   | Your commands and those recorded by AI coding agents through [agent hooks](../guide/agent-hooks.md)    |
+| `"agent"` | Only commands recorded by AI coding agents                                                             |
+
+When the scope includes agent commands, the search box shows `+AGENTS` or
+`AGENTS` after the filter mode. Agent commands are often long scripts that
+contain the letters of almost any short query in order, so in these scopes the
+fuzzy and daemon-fuzzy search modes match your query as substrings, and the
+shortest matching commands come first.
+
+```toml
+[search]
+author_scope = "user"
+```
 
 To filter by author on the command line, use `atuin search --author`. See
 [Filtering by Author](../guide/agent-hooks.md#filtering-by-author) for the
