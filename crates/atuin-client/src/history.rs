@@ -25,7 +25,8 @@ pub use capture::CommandCapture;
 
 /// Known AI agent author values. Used by [`History::is_agent`] to guess who ran a command when the
 /// entry does not state it, and so when matching against [`AuthorPattern::AllAgent`] and
-/// [`AuthorPattern::AllUser`].
+/// [`AuthorPattern::AllUser`]. The history database's generated `is_agent` column freezes this
+/// list; changing it needs a migration that recreates that column.
 pub const KNOWN_AGENTS: &[&str] = &["claude-code", "codex", "copilot", "opencode", "pi"];
 
 /// The spelling of [`AuthorPattern::AllUser`] on the command line and in the MCP tool schema.
@@ -56,8 +57,8 @@ pub enum AuthorKind {
 }
 
 impl AuthorKind {
-    /// Every recognised kind. The SQL author filter derives its recognised-value list from this,
-    /// so it stays in lockstep with [`Self::from_repr`] (a test pins the two together).
+    /// Every recognised kind. The history database's generated `is_agent` column freezes these
+    /// values; adding one needs a migration that recreates that column.
     pub const VARIANTS: [Self; 2] = [Self::User, Self::Agent];
 
     #[must_use]
@@ -813,20 +814,6 @@ mod tests {
             .build()
             .into();
         assert_eq!(history.should_save(&settings), expected);
-    }
-
-    /// The SQL author filter derives its recognised-kind list from [`AuthorKind::VARIANTS`] while
-    /// Rust decoding goes through [`AuthorKind::from_repr`]; a value present in one but not the
-    /// other would split the two classifiers, so pin them to agree over the whole u8 range.
-    #[rstest]
-    fn author_kind_variants_and_from_repr_agree() {
-        for value in 0..=u8::MAX {
-            assert_eq!(
-                AuthorKind::from_repr(value),
-                AuthorKind::VARIANTS.iter().copied().find(|kind| kind.as_u8() == value),
-                "{value}"
-            );
-        }
     }
 
     /// The capture path treats an explicitly stated author as an authorship claim: a known agent
