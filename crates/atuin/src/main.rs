@@ -20,7 +20,8 @@ mod sync;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const SHA: &str = env!("GIT_HASH");
 
-const LONG_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), ")");
+const FORK_VERSION: &str =
+    concat!(env!("CARGO_PKG_VERSION"), " danwt fork ", env!("GIT_HASH_SHORT"));
 
 static HELP_TEMPLATE: &str = "\
 {before-help}{name} {version}
@@ -43,7 +44,7 @@ const STYLES: Styles = Styles::styled()
 #[command(
     author = "Ellie Huxtable <ellie@atuin.sh>",
     version = VERSION,
-    long_version = LONG_VERSION,
+    long_version = FORK_VERSION,
     help_template(HELP_TEMPLATE),
     styles = STYLES,
 )]

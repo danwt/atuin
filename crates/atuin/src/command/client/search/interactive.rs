@@ -41,7 +41,7 @@ use super::history_list::{HistoryList, ListState};
 use super::inspector::Stats as InspectorStats;
 use super::inspector::bindings::Bindings;
 use super::inspector::browser::{Browser, View as InspectorView};
-use crate::VERSION;
+use crate::FORK_VERSION;
 use crate::command::client::search::engines;
 use crate::command::client::search::history_list::HistoryHighlighter;
 use crate::command::client::search::keybindings::KeymapSet;
@@ -1093,16 +1093,17 @@ impl State {
             inner_width: input_chunk.width.into(),
         };
 
+        let title = self.build_title(theme);
+        let title_width = u16::conv(title.width()).max(header_chunk.width / 5);
         let header_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints::<&[Constraint]>(
-                [Constraint::Ratio(1, 5), Constraint::Ratio(3, 5), Constraint::Ratio(1, 5)]
+                [Constraint::Length(title_width), Constraint::Fill(3), Constraint::Fill(1)]
                     .as_ref(),
             )
             .split(header_chunk);
 
-        let title = self.build_title(theme);
-        f.render_widget(title, header_chunks[0]);
+        f.render_widget(Paragraph::new(title), header_chunks[0]);
 
         let help = self.build_help(settings, theme);
         f.render_widget(help, header_chunks[1]);
@@ -1264,21 +1265,20 @@ impl State {
         ));
     }
 
-    fn build_title(&self, theme: &Theme) -> Paragraph<'_> {
-        let title = if self.update_needed.is_some() {
+    fn build_title(&self, theme: &Theme) -> Line<'static> {
+        if self.update_needed.is_some() {
             let error_style: Style = Style::from_crossterm(theme.get_error());
-            Paragraph::new(Text::from(Span::styled(
-                format!("Atuin v{VERSION} - UPDATE"),
+            Line::from(Span::styled(
+                format!("Atuin v{FORK_VERSION} - UPDATE"),
                 error_style.add_modifier(Modifier::BOLD),
-            )))
+            ))
         } else {
             let style: Style = Style::from_crossterm(theme.as_style(Meaning::Base));
-            Paragraph::new(Text::from(Span::styled(
-                format!("Atuin v{VERSION}"),
+            Line::from(Span::styled(
+                format!("Atuin v{FORK_VERSION}"),
                 style.add_modifier(Modifier::BOLD),
-            )))
-        };
-        title.alignment(Alignment::Left)
+            ))
+        }
     }
 
     #[allow(clippy::unused_self)]

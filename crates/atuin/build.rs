@@ -7,5 +7,7 @@ fn main() {
         _ => String::from("NO_GIT"),
     };
 
+    let sha = sha.trim();
     println!("cargo:rustc-env=GIT_HASH={sha}");
+    println!("cargo:rustc-env=GIT_HASH_SHORT={}", &sha[..sha.len().min(8)]);
 }
